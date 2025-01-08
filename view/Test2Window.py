@@ -27,31 +27,44 @@ class MyApplication(QWidget):
         message.exec()
 
     def extract_colors(self, image_path, num_colors=3):
-        model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+        # Загружаем модель YOLO
+        model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # Модель уже загружена
         image = cv2.imread(image_path)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = model(image_rgb)
-        boxes = results.xyxy[0][:, :4].cpu().numpy()
+        results = model(image_rgb)  # Получаем результаты из модели
+
+        # Получаем координаты рамок для автомобилей (classes == 2, 3, 7 для car, truck, bus)
+        boxes = results.xyxy[0][:, :4].cpu().numpy()  # x1, y1, x2, y2
         classes = results.xyxy[0][:, 5].cpu().numpy()
 
-        car_boxes = boxes[classes == 2]
-        car_boxes1 = boxes[classes == 3]
-        car_boxes2 = boxes[classes == 7]
-
+        car_boxes = boxes[(classes == 2) | (classes == 3) | (classes == 7)]  # Только машины
         car_pixels = []
 
         try:
-            # Извлечение пикселей из найденных машин
-            for box in np.concatenate([car_boxes, car_boxes1, car_boxes2]):
-                x, y, x2, y2 = box.astype(int)
-                car_pixels.extend(image_rgb[y:y2, x:x2])
+            # Создаем маску для автомобилей
+            mask = np.zeros(image_rgb.shape[:2], dtype=np.uint8)  # Черная маска того же размера, что и изображение
+            for box in car_boxes:
+                x1, y1, x2, y2 = box.astype(int)
+                mask[y1:y2, x1:x2] = 255  # Заполняем область внутри рамки белым (255)
 
-            car_pixels = np.array(car_pixels).reshape((-1, 3))
-            kmeans = KMeans(n_clusters=num_colors)
-            kmeans.fit(car_pixels)
-            dominant_colors = kmeans.cluster_centers_.astype(int)
+            car_pixels = image_rgb[mask == 255]  # Только те пиксели, которые попадают в маску
+
+            image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            car_pixels_hsv = cv2.cvtColor(car_pixels, cv2.COLOR_RGB2HSV)
+
+            mask_bright = (car_pixels_hsv[:, 1] > 50) & (car_pixels_hsv[:, 2] > 50)
+            car_pixels_hsv = car_pixels_hsv[mask_bright]
+
+            if len(car_pixels_hsv) > 0:
+                kmeans = KMeans(n_clusters=num_colors)
+                kmeans.fit(car_pixels_hsv[:, :3])
+                dominant_colors = kmeans.cluster_centers_.astype(int)
+            else:
+                raise ValueError("Нет подходящих пикселей для анализа")
+
         except Exception as e:
-            print(f"Ошибка: {str(e)}")
+            print(f"Ошибка при извлечении цвета: {str(e)}")
+            # Если возникла ошибка, извлекаем цвета с всего изображения
             pixels = image_rgb.reshape((-1, 3))
             kmeans = KMeans(n_clusters=num_colors)
             kmeans.fit(pixels)
