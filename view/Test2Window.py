@@ -47,17 +47,21 @@ class MyApplication(QWidget):
                 x1, y1, x2, y2 = box.astype(int)
                 mask[y1:y2, x1:x2] = 255  # Заполняем область внутри рамки белым (255)
 
+            # Извлекаем пиксели только в области автомобилей
             car_pixels = image_rgb[mask == 255]  # Только те пиксели, которые попадают в маску
 
+            # Преобразуем в HSV для лучшей устойчивости к освещению
             image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             car_pixels_hsv = cv2.cvtColor(car_pixels, cv2.COLOR_RGB2HSV)
 
+            # Фильтрация: убираем слишком темные или слишком яркие пиксели
             mask_bright = (car_pixels_hsv[:, 1] > 50) & (car_pixels_hsv[:, 2] > 50)
             car_pixels_hsv = car_pixels_hsv[mask_bright]
 
+            # Если остались пиксели, применяем KMeans
             if len(car_pixels_hsv) > 0:
                 kmeans = KMeans(n_clusters=num_colors)
-                kmeans.fit(car_pixels_hsv[:, :3])
+                kmeans.fit(car_pixels_hsv[:, :3])  # Используем только H, S, V для кластеризации
                 dominant_colors = kmeans.cluster_centers_.astype(int)
             else:
                 raise ValueError("Нет подходящих пикселей для анализа")
@@ -130,35 +134,76 @@ class MyApplication(QWidget):
             # Проверяем, что файл существует
             image_path = os.path.join(self.current_folder, file_name)  # self.current_folder хранит путь к текущей папке
             if os.path.exists(image_path):
-                # Извлекаем доминирующие цвета
-                dominant_colors = self.extract_colors(image_path, num_colors=3)
+                try:
+                    # Извлекаем доминирующие цвета
+                    dominant_colors = self.extract_colors(image_path, num_colors=3)
 
-                # Обновляем интерфейс с информацией о цветах
-                print("Dominant Colors:")
-                for color in dominant_colors:
-                    print(f"RGB: {color}")
+                    # Обновляем интерфейс с информацией о цветах
+                    print("Dominant Colors:")
+                    for color in dominant_colors:
+                        print(f"RGB: {color}")
 
-                message = f"{file_name}\n" + "Доминирующий цвет: " + str(dominant_colors)
-                self.result_label.setText(f"Выбранная запись: {message}")
+                    message = f"{file_name}\n" + "Доминирующие цвета: " + str(dominant_colors)
+                    self.result_label.setText(f"Выбранная запись: {message}")
 
-                # Отображение квадрата с цветом
-                for color in dominant_colors:
-                    color = [min(max(c, 0), 255) for c in color]  # Ограничиваем значения в диапазоне 0-255
-                    color_string = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
-                    print(color_string)
-                    pixmap = QPixmap(50, 50)
-                    pixmap.fill(QColor(color_string))
-                    self.color_square_label.setPixmap(pixmap)
+                    # Отображаем квадраты с цветами в одну линию
+                    self.display_color_squares(dominant_colors)
 
-                # Показываем модальное окно с деталями изображения
-                image_info_dialog = ImageInfoDialog(image_path, dominant_colors, file_name)
-                image_info_dialog.exec()
+                    # Показываем модальное окно с деталями изображения
+                    image_info_dialog = ImageInfoDialog(image_path, dominant_colors, file_name)
+                    image_info_dialog.exec()
+
+                except Exception as e:
+                    # В случае ошибки выводим сообщение об ошибке
+                    self.show_error_message("Ошибка", f"Ошибка при обработке изображения: {str(e)}")
+
             else:
                 self.show_error_message("Ошибка", f"Файл {file_name} не найден.")
         else:
             self.show_error_message("Ошибка", "Вы не выбрали запись.")
 
+    def display_color_squares(self, dominant_colors):
+        """
+        Отображает несколько квадратов с доминирующими цветами в одну линию.
+        """
+        # Убедимся, что у нас есть контейнер для квадратов
+        if not hasattr(self, 'color_square_widget'):
+            # Создаем контейнер, если его еще нет
+            self.color_square_widget = QWidget(self)
+            self.layout().addWidget(self.color_square_widget)  # Добавляем в layout основного окна
 
+        # Очищаем старые квадраты
+        if hasattr(self, 'color_square_layout'):
+            for i in reversed(range(self.color_square_layout.count())):
+                widget = self.color_square_layout.itemAt(i).widget()
+                if widget is not None:
+                    widget.deleteLater()
+
+        # Создаем новый горизонтальный layout
+        self.color_square_layout = QHBoxLayout()
+
+        # Устанавливаем меньшее расстояние между квадратами
+        self.color_square_layout.setSpacing(5)  # Уменьшаем расстояние до 5 пикселей
+
+        # Ограничиваем количество квадратов, например, до 3
+        max_squares = 3
+        for color in dominant_colors[:max_squares]:
+            # Ограничиваем значения цвета в диапазоне 0-255
+            color = [min(max(c, 0), 255) for c in color]
+            color_string = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
+
+            # Создаем квадрат для каждого доминирующего цвета
+            pixmap = QPixmap(50, 50)
+            pixmap.fill(QColor(color_string))
+
+            # Создаем QLabel с квадратом и добавляем его в layout
+            color_label = QLabel()
+            color_label.setPixmap(pixmap)
+            self.color_square_layout.addWidget(color_label)
+
+        # Устанавливаем layout для контейнера с цветами
+        self.color_square_widget.setLayout(self.color_square_layout)
+        self.color_square_widget.setFixedHeight(60)  # Ограничиваем высоту контейнера, если нужно
 
     def init_ui(self):
         # Стиль для кнопок
@@ -348,7 +393,7 @@ class MyApplication(QWidget):
         self.table_view.setRowHeight(0, 100)  # Фиксированная высота для первой строки
 
         self.setLayout(main_layout)
-        self.setFixedSize(1050, 800)
+        self.setFixedSize(1050, 900)
         self.setWindowTitle('WipeMyTearsCV')
         self.setStyleSheet("background-color: #f9f9f9;")  # фон для всего приложения
         self.show()
