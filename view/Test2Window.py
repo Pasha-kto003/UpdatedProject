@@ -11,7 +11,7 @@ import os
 import cv2
 from PySide6.QtWidgets import QFrame
 from sklearn.cluster import KMeans
-from view.ModalWindow import ImageInfoDialog  # Предположим, что этот модуль существует
+from view.ModalWindow import ImageInfoDialog
 
 
 class MyApplication(QWidget):
@@ -27,53 +27,32 @@ class MyApplication(QWidget):
         message.exec()
 
     def extract_colors(self, image_path, num_colors=3):
-        # Загружаем модель YOLO
-        model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # Модель уже загружена
+        model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
         image = cv2.imread(image_path)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = model(image_rgb)  # Получаем результаты из модели
-
-        # Получаем координаты рамок для автомобилей (classes == 2, 3, 7 для car, truck, bus)
+        results = model(image_rgb)
         boxes = results.xyxy[0][:, :4].cpu().numpy()  # x1, y1, x2, y2
         classes = results.xyxy[0][:, 5].cpu().numpy()
-
-        car_boxes = boxes[(classes == 2) | (classes == 3) | (classes == 7)]  # Только машины
-        car_pixels = []
-
+        car_boxes = boxes[(classes == 2) | (classes == 3) | (classes == 7)]
         try:
-            # Создаем маску для автомобилей
-            mask = np.zeros(image_rgb.shape[:2], dtype=np.uint8)  # Черная маска того же размера, что и изображение
+            mask = np.zeros(image_rgb.shape[:2], dtype=np.uint8)
             for box in car_boxes:
                 x1, y1, x2, y2 = box.astype(int)
-                mask[y1:y2, x1:x2] = 255  # Заполняем область внутри рамки белым (255)
-
-            # Извлекаем пиксели только в области автомобилей
-            car_pixels = image_rgb[mask == 255]  # Только те пиксели, которые попадают в маску
-
-            # Преобразуем в HSV для лучшей устойчивости к освещению
-            image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+                mask[y1:y2, x1:x2] = 255
+            car_pixels = image_rgb[mask == 255]
             car_pixels_hsv = cv2.cvtColor(car_pixels, cv2.COLOR_RGB2HSV)
-
-            # Фильтрация: убираем слишком темные или слишком яркие пиксели
             mask_bright = (car_pixels_hsv[:, 1] > 50) & (car_pixels_hsv[:, 2] > 50)
             car_pixels_hsv = car_pixels_hsv[mask_bright]
-
-            # Если остались пиксели, применяем KMeans
-            if len(car_pixels_hsv) > 0:
-                kmeans = KMeans(n_clusters=num_colors)
-                kmeans.fit(car_pixels_hsv[:, :3])  # Используем только H, S, V для кластеризации
-                dominant_colors = kmeans.cluster_centers_.astype(int)
-            else:
-                raise ValueError("Нет подходящих пикселей для анализа")
+            kmeans = KMeans(n_clusters=num_colors)
+            kmeans.fit(car_pixels_hsv[:, :3])
+            dominant_colors = kmeans.cluster_centers_.astype(int)
 
         except Exception as e:
-            print(f"Ошибка при извлечении цвета: {str(e)}")
-            # Если возникла ошибка, извлекаем цвета с всего изображения
+            print(f"-: {str(e)}")
             pixels = image_rgb.reshape((-1, 3))
             kmeans = KMeans(n_clusters=num_colors)
             kmeans.fit(pixels)
             dominant_colors = kmeans.cluster_centers_.astype(int)
-
         return dominant_colors
 
     def find_car(self, input_dir, output_cars='output.csv'):
@@ -81,15 +60,11 @@ class MyApplication(QWidget):
         files = os.listdir(input_dir)
         num_files = len(files)
         imgs = [cv2.imread(os.path.join(input_dir, file_name)) for file_name in files]
-
-        # Проверка доступности GPU
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model = torch.hub.load('ultralytics/yolov5', 'yolov5s', device=device)
         results = model(imgs)
-
         output_folder = 'Datasets/images'
         os.makedirs(output_folder, exist_ok=True)
-
         try:
             with open(output_cars, 'w', newline='') as f:
                 writer = csv.writer(f)
@@ -97,12 +72,10 @@ class MyApplication(QWidget):
                     res = [n in results.pandas().xyxy[i]['name'].unique() for n in cars]
                     has_car = bool(sum(res))
                     writer.writerow([file_name, has_car])
-
                     if has_car:
                         output_path = os.path.join(output_folder, file_name)
                         cv2.imwrite(output_path, imgs[i])
                         print(f"Фото с машиной сохранено: {output_path}")
-
                         image_path = os.path.join(input_dir, file_name)
                         image = Image.open(image_path)
                         width, height = image.size
@@ -110,9 +83,7 @@ class MyApplication(QWidget):
                         size_in_mbytes = float(size_in_bytes / 1048576)
                         self.update_table(file_name, width, height, size_in_mbytes, input_dir)
 
-                    # Обновление прогресс-бара
                     self.progress_bar.setValue(int((i + 1) / num_files * 100))
-
             self.progress_bar.setValue(100)
         except Exception as e:
             message = QMessageBox()
@@ -125,88 +96,57 @@ class MyApplication(QWidget):
             self.progress_bar.setVisible(False)
 
     def detectButtonClicked(self):
-        # Получаем выбранную строку из таблицы
         selected_index = self.table_view.selectionModel().currentIndex()
         if selected_index.isValid():
-            # Извлекаем путь к изображению из скрытого столбца (например, 3-го)
             file_name = selected_index.siblingAtColumn(3).data(Qt.ItemDataRole.DisplayRole)
-
-            # Проверяем, что файл существует
-            image_path = os.path.join(self.current_folder, file_name)  # self.current_folder хранит путь к текущей папке
+            image_path = os.path.join(self.current_folder, file_name)
             if os.path.exists(image_path):
                 try:
-                    # Извлекаем доминирующие цвета
                     dominant_colors = self.extract_colors(image_path, num_colors=3)
-
-                    # Обновляем интерфейс с информацией о цветах
                     print("Dominant Colors:")
                     for color in dominant_colors:
                         print(f"RGB: {color}")
-
                     message = f"{file_name}\n" + "Доминирующие цвета: " + str(dominant_colors)
                     self.result_label.setText(f"Выбранная запись: {message}")
-
-                    # Отображаем квадраты с цветами в одну линию
                     self.display_color_squares(dominant_colors)
-
-                    # Показываем модальное окно с деталями изображения
                     image_info_dialog = ImageInfoDialog(image_path, dominant_colors, file_name)
                     image_info_dialog.exec()
-
                 except Exception as e:
-                    # В случае ошибки выводим сообщение об ошибке
                     self.show_error_message("Ошибка", f"Ошибка при обработке изображения: {str(e)}")
-
             else:
                 self.show_error_message("Ошибка", f"Файл {file_name} не найден.")
         else:
             self.show_error_message("Ошибка", "Вы не выбрали запись.")
 
     def display_color_squares(self, dominant_colors):
-        """
-        Отображает несколько квадратов с доминирующими цветами в одну линию.
-        """
-        # Убедимся, что у нас есть контейнер для квадратов
         if not hasattr(self, 'color_square_widget'):
             # Создаем контейнер, если его еще нет
             self.color_square_widget = QWidget(self)
-            self.layout().addWidget(self.color_square_widget)  # Добавляем в layout основного окна
+            self.layout().addWidget(self.color_square_widget)
 
-        # Очищаем старые квадраты
         if hasattr(self, 'color_square_layout'):
             for i in reversed(range(self.color_square_layout.count())):
                 widget = self.color_square_layout.itemAt(i).widget()
                 if widget is not None:
                     widget.deleteLater()
 
-        # Создаем новый горизонтальный layout
+
         self.color_square_layout = QHBoxLayout()
-
-        # Устанавливаем меньшее расстояние между квадратами
-        self.color_square_layout.setSpacing(5)  # Уменьшаем расстояние до 5 пикселей
-
-        # Ограничиваем количество квадратов, например, до 3
+        self.color_square_layout.setSpacing(5)
         max_squares = 3
         for color in dominant_colors[:max_squares]:
-            # Ограничиваем значения цвета в диапазоне 0-255
             color = [min(max(c, 0), 255) for c in color]
             color_string = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
-
-            # Создаем квадрат для каждого доминирующего цвета
             pixmap = QPixmap(50, 50)
             pixmap.fill(QColor(color_string))
-
-            # Создаем QLabel с квадратом и добавляем его в layout
             color_label = QLabel()
             color_label.setPixmap(pixmap)
             self.color_square_layout.addWidget(color_label)
 
-        # Устанавливаем layout для контейнера с цветами
         self.color_square_widget.setLayout(self.color_square_layout)
-        self.color_square_widget.setFixedHeight(60)  # Ограничиваем высоту контейнера, если нужно
+        self.color_square_widget.setFixedHeight(60)
 
     def init_ui(self):
-        # Стиль для кнопок
         button_sheet = """
             QPushButton {
                 background-color: #6C63FF;
@@ -330,7 +270,6 @@ class MyApplication(QWidget):
         self.model = QStandardItemModel(0, 3)
         self.model.setHorizontalHeaderLabels(["Фото", "Разрешение", "Вес"])
 
-        # Инициализация виджетов
         self.result_label = QLabel("Выбранная запись:")
         self.table_view = QTableView()
         self.table_view.setModel(self.model)
@@ -347,13 +286,11 @@ class MyApplication(QWidget):
         self.info_frame_layout = QVBoxLayout()
         self.info_frame_layout.addWidget(self.info_label)
 
-        # Кнопки
         btn_view_result = QPushButton('Выбрать директорию', self)
         btn_exit = QPushButton('Выход', self)
-        detect_button = QPushButton("Просмотреть")
+        detect_button = QPushButton("Посмотреть")
         find_button = QPushButton("Find Car")
 
-        # Применяем стиль ко всем кнопкам
         for button in [btn_view_result, btn_exit, detect_button, find_button]:
             button.setStyleSheet(button_sheet)
 
@@ -368,15 +305,11 @@ class MyApplication(QWidget):
         btn_collapse.clicked.connect(lambda: self.table_view.hide())
         btn_expand.clicked.connect(lambda: self.table_view.show())
 
-        # Компоновка кнопок
         button_layout = QHBoxLayout()
         button_layout.addWidget(btn_view_result)
         button_layout.addWidget(detect_button)
         button_layout.addWidget(btn_exit)
 
-
-
-        # Основной лейаут
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.table_view)
         main_layout.addLayout(button_layout)
@@ -386,16 +319,16 @@ class MyApplication(QWidget):
         main_layout.addWidget(self.color_square_label)
         main_layout.addWidget(self.progress_bar)
 
-        self.table_view.setFixedSize(1000, 600)  # Фиксированная ширина и высота таблицы
-        self.table_view.setColumnWidth(0, 200)  # Фиксированная ширина для первого столбца
-        self.table_view.setColumnWidth(1, 300)  # Фиксированная ширина для второго столбца
-        self.table_view.setColumnWidth(2, 200)  # Фиксированная ширина для третьего столбца
-        self.table_view.setRowHeight(0, 100)  # Фиксированная высота для первой строки
+        self.table_view.setFixedSize(1000, 600)
+        self.table_view.setColumnWidth(0, 200)
+        self.table_view.setColumnWidth(1, 300)
+        self.table_view.setColumnWidth(2, 200)
+        self.table_view.setRowHeight(0, 100)
 
         self.setLayout(main_layout)
         self.setFixedSize(1050, 900)
         self.setWindowTitle('WipeMyTearsCV')
-        self.setStyleSheet("background-color: #f9f9f9;")  # фон для всего приложения
+        self.setStyleSheet("background-color: #f9f9f9;")
         self.show()
 
     def update_table(self, file_name, width, height, size_in_mbytes, image_path):
