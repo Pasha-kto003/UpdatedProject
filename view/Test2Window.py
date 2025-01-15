@@ -4,12 +4,11 @@ import numpy as np
 import torch
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QTableView, QPushButton, QHBoxLayout, QFileDialog, \
-    QLabel, QMessageBox, QProgressBar
+    QLabel, QMessageBox, QProgressBar, QFrame
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QColor
 from PIL import Image
 import os
 import cv2
-from PySide6.QtWidgets import QFrame
 from sklearn.cluster import KMeans
 from view.ModalWindow import ImageInfoDialog
 
@@ -108,7 +107,6 @@ class MyApplication(QWidget):
                         print(f"RGB: {color}")
                     message = f"{file_name}\n" + "Доминирующие цвета: " + str(dominant_colors)
                     self.result_label.setText(f"Выбранная запись: {message}")
-                    self.display_color_squares(dominant_colors)
                     image_info_dialog = ImageInfoDialog(image_path, dominant_colors, file_name)
                     image_info_dialog.exec()
                 except Exception as e:
@@ -117,34 +115,6 @@ class MyApplication(QWidget):
                 self.show_error_message("Ошибка", f"Файл {file_name} не найден.")
         else:
             self.show_error_message("Ошибка", "Вы не выбрали запись.")
-
-    def display_color_squares(self, dominant_colors):
-        if not hasattr(self, 'color_square_widget'):
-            # Создаем контейнер, если его еще нет
-            self.color_square_widget = QWidget(self)
-            self.layout().addWidget(self.color_square_widget)
-
-        if hasattr(self, 'color_square_layout'):
-            for i in reversed(range(self.color_square_layout.count())):
-                widget = self.color_square_layout.itemAt(i).widget()
-                if widget is not None:
-                    widget.deleteLater()
-
-
-        self.color_square_layout = QHBoxLayout()
-        self.color_square_layout.setSpacing(5)
-        max_squares = 3
-        for color in dominant_colors[:max_squares]:
-            color = [min(max(c, 0), 255) for c in color]
-            color_string = '#{:02x}{:02x}{:02x}'.format(color[0], color[1], color[2])
-            pixmap = QPixmap(50, 50)
-            pixmap.fill(QColor(color_string))
-            color_label = QLabel()
-            color_label.setPixmap(pixmap)
-            self.color_square_layout.addWidget(color_label)
-
-        self.color_square_widget.setLayout(self.color_square_layout)
-        self.color_square_widget.setFixedHeight(60)
 
     def init_ui(self):
         button_sheet = """
@@ -201,7 +171,6 @@ class MyApplication(QWidget):
             }
         """
 
-        # Стиль для таблицы
         table_style = """
             QTableView {
                 background-color: #ffffff;
@@ -319,7 +288,7 @@ class MyApplication(QWidget):
         main_layout.addWidget(self.color_square_label)
         main_layout.addWidget(self.progress_bar)
 
-        self.table_view.setFixedSize(1000, 600)
+        self.table_view.setFixedSize(1000, 700)
         self.table_view.setColumnWidth(0, 200)
         self.table_view.setColumnWidth(1, 300)
         self.table_view.setColumnWidth(2, 200)
